@@ -150,6 +150,11 @@ def run(
         height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         no_of_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
 
+    num_intra_threads = torch.get_num_threads()
+    num_inter_threads = torch.get_num_interop_threads()
+
+    LOGGER.info("pt inter thread: %d intra threads: %d", num_inter_threads, num_intra_threads)
+
     # video controller
     def quit_key_action(**params):
         nonlocal is_quit
@@ -164,6 +169,18 @@ def run(
         nonlocal scale
         scale = scale / 1.1
         LOGGER.info('Zoom: %f', scale)
+
+    def less_threads_key_action(**params):
+        nonlocal num_intra_threads
+        num_intra_threads = max(1, num_intra_threads - 1)
+        torch.set_num_threads(num_intra_threads)
+        LOGGER.info("pt inter thread: %d intra threads: %d", num_inter_threads, num_intra_threads)
+
+    def more_threads_key_action(**params):
+        nonlocal num_intra_threads
+        num_intra_threads = max(1, num_intra_threads + 1)
+        torch.set_num_threads(num_intra_threads)
+        LOGGER.info("pt inter thread: %d intra threads: %d", num_inter_threads, num_intra_threads)
 
     def rewind_key_action(**params):
         if cap:
@@ -190,9 +207,11 @@ def run(
         ord('r'): rewind_key_action,
         ord('f'): forward_key_action,
         ord('p'): pause_key_action,
+        ord(' '): pause_key_action,
         ord('+'): zoom_in_key_action,
         ord('-'): zoom_out_key_action,
-        ord(' '): pause_key_action
+        ord('l'): less_threads_key_action,
+        ord('m'): more_threads_key_action
     }
 
     def key_action(_key):
