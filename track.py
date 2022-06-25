@@ -71,7 +71,9 @@ def run(
         hide_class=False,  # hide IDs
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
-        frame_mod=1, # show every n=th frame
+        frame_mod=1,  # show every n=th frame
+        threads=1,  # inference threads
+        scale=1.0,  # video display scale
 ):
 
     source = str(source)
@@ -138,7 +140,6 @@ def run(
     is_paused = False       # Used to signal that pause is called
     frame_counter = 0
     cap = False
-    scale = 1.0
 
     if webcam:
         pass
@@ -150,10 +151,12 @@ def run(
         height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         no_of_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
 
-    num_intra_threads = torch.get_num_threads()
+    torch.set_num_threads(threads)
+
+    threads = torch.get_num_threads()
     num_inter_threads = torch.get_num_interop_threads()
 
-    LOGGER.info("pt inter thread: %d intra threads: %d", num_inter_threads, num_intra_threads)
+    LOGGER.info("pt inter thread: %d intra threads: %d", num_inter_threads, threads)
 
     # video controller
     def quit_key_action(**params):
@@ -171,16 +174,16 @@ def run(
         LOGGER.info('Zoom: %f', scale)
 
     def less_threads_key_action(**params):
-        nonlocal num_intra_threads
-        num_intra_threads = max(1, num_intra_threads - 1)
-        torch.set_num_threads(num_intra_threads)
-        LOGGER.info("pt inter thread: %d intra threads: %d", num_inter_threads, num_intra_threads)
+        nonlocal threads
+        threads = max(1, threads - 1)
+        torch.set_num_threads(threads)
+        LOGGER.info("pt inter thread: %d intra threads: %d", num_inter_threads, threads)
 
     def more_threads_key_action(**params):
-        nonlocal num_intra_threads
-        num_intra_threads = max(1, num_intra_threads + 1)
-        torch.set_num_threads(num_intra_threads)
-        LOGGER.info("pt inter thread: %d intra threads: %d", num_inter_threads, num_intra_threads)
+        nonlocal threads
+        threads = max(1, threads + 1)
+        torch.set_num_threads(threads)
+        LOGGER.info("pt inter thread: %d intra threads: %d", num_inter_threads, threads)
 
     def rewind_key_action(**params):
         if cap:
@@ -415,11 +418,25 @@ def parse_opt():
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
     parser.add_argument('--frame_mod', type=int, default=1, help='show every n-th frame')
+    parser.add_argument('--threads', type=int, default=1, help='number of inference threads')
+    parser.add_argument('--scale', type=float, default=1.0, help='video display scale')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     print_args(vars(opt))
     return opt
 
+    # Supported engines/weight:
+    #   PyTorch:              weights = *.pt
+    #   TorchScript:                    *.torchscript
+    #   ONNX Runtime:                   *.onnx
+    #   ONNX OpenCV DNN:                *.onnx with --dnn
+    #   OpenVINO:                       *.xml
+    #   CoreML:                         *.mlmodel
+    #   TensorRT:                       *.engine
+    #   TensorFlow SavedModel:          *_saved_model
+    #   TensorFlow GraphDef:            *.pb
+    #   TensorFlow Lite:                *.tflite
+    #   TensorFlow Edge TPU:            *_edgetpu.tflite
 
 def main(opt):
     check_requirements(requirements=ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
