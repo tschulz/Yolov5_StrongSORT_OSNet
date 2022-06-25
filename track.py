@@ -39,6 +39,7 @@ from strong_sort.strong_sort import StrongSORT
 # remove duplicated stream handler to avoid duplicated logging
 logging.getLogger().removeHandler(logging.getLogger().handlers[0])
 
+
 @torch.no_grad()
 def run(
         source='0',
@@ -70,6 +71,7 @@ def run(
         hide_class=False,  # hide IDs
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
+        frame_mod=1, # show every n=th frame
 ):
 
     source = str(source)
@@ -104,6 +106,7 @@ def run(
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt)
         nr_sources = len(dataset)
     else:
+        show_vid = check_imshow()
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
         nr_sources = 1
     vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
@@ -131,11 +134,88 @@ def run(
         )
     outputs = [None] * nr_sources
 
+    is_quit = False         # Used to signal that quit is called
+    is_paused = False       # Used to signal that pause is called
+    frame_counter = 0
+    cap = False
+    scale = 1.0
+
+    if webcam:
+        pass
+    else:
+        cap = dataset.cap
+        # Video information
+        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        no_of_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+
+    # video controller
+    def quit_key_action(**params):
+        nonlocal is_quit
+        is_quit = True
+
+    def zoom_in_key_action(**params):
+        nonlocal scale
+        scale = scale * 1.1
+        LOGGER.info('Zoom: %f', scale)
+
+    def zoom_out_key_action(**params):
+        nonlocal scale
+        scale = scale / 1.1
+        LOGGER.info('Zoom: %f', scale)
+
+    def rewind_key_action(**params):
+        if cap:
+            nonlocal frame_counter
+            nonlocal video_fps
+            frame_counter = max(0, int(frame_counter - (video_fps * 5)))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_counter)
+
+    def forward_key_action(**params):
+        if cap:
+            nonlocal frame_counter
+            nonlocal video_fps
+            nonlocal no_of_frames
+            frame_counter = min(int(frame_counter + (video_fps * 5)), no_of_frames - 1)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_counter)
+
+    def pause_key_action(**params):
+        nonlocal is_paused
+        is_paused = not is_paused
+
+    # Map keys to buttons
+    key_action_dict = {
+        ord('q'): quit_key_action,
+        ord('r'): rewind_key_action,
+        ord('f'): forward_key_action,
+        ord('p'): pause_key_action,
+        ord('+'): zoom_in_key_action,
+        ord('-'): zoom_out_key_action,
+        ord(' '): pause_key_action
+    }
+
+    def key_action(_key):
+        if _key in key_action_dict:
+            key_action_dict[_key]()
+
     # Run tracking
     model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
     curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
     for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
+        if is_quit:
+            break
+        elif is_paused:
+            while is_paused and not is_quit:
+                key = cv2.waitKey(1)  # 1 millisecond
+                if key >= 0:
+                    key_action(key)
+
+
+        if (frame_idx % frame_mod) != 0:
+            continue
+
         t1 = time_sync()
         im = torch.from_numpy(im).to(device)
         im = im.half() if half else im.float()  # uint8 to fp16/32
@@ -241,9 +321,19 @@ def run(
 
             # Stream results
             im0 = annotator.result()
-            if show_vid:
-                cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
+            if show_vid and (frame_idx % frame_mod) == 0:
+                if scale != 1.0:
+                    new_width = int(im0.shape[1] * scale)
+                    new_height = int(im0.shape[0] * scale)
+                    new_dim = (new_width, new_height)
+                    new_im0 = cv2.resize(im0, new_dim)
+                    cv2.imshow(str(p), new_im0)
+                else:
+                    cv2.imshow(str(p), im0)
+
+                key = cv2.waitKey(1)  # 1 millisecond
+                if key >= 0:
+                    key_action(key)
 
             # Save results (image with detections)
             if save_vid:
@@ -305,6 +395,7 @@ def parse_opt():
     parser.add_argument('--hide-class', default=False, action='store_true', help='hide IDs')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
+    parser.add_argument('--frame_mod', type=int, default=1, help='show every n-th frame')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     print_args(vars(opt))
