@@ -8,9 +8,11 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
+import math
 import sys
 import numpy as np
 from pathlib import Path
+from gst_loader import LoadGstAppSink
 import torch
 import torch.backends.cudnn as cudnn
 
@@ -43,6 +45,7 @@ logging.getLogger().removeHandler(logging.getLogger().handlers[0])
 @torch.no_grad()
 def run(
         source='0',
+        gst_source=None, # gstreamer pipeline
         yolo_weights=WEIGHTS / 'yolov5m.pt',  # model.pt path(s),
         strong_sort_weights=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
         config_strongsort=ROOT / 'strong_sort/configs/strong_sort.yaml',
@@ -76,13 +79,22 @@ def run(
         scale=1.0,  # video display scale
 ):
 
-    source = str(source)
-    save_img = not nosave and not source.endswith('.txt')  # save inference images
-    is_file = Path(source).suffix[1:] in (VID_FORMATS)
-    is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
-    webcam = source.isnumeric() or source.endswith('.txt') or (is_url and not is_file)
-    if is_url and is_file:
-        source = check_file(source)  # download
+    if gst_source:
+        is_gst = True
+        is_file = False
+        is_url = False
+        webcam = False
+        source = gst_source
+        LOGGER.info(gst_source)
+    else:
+        is_gst = False
+        source = str(source)
+        save_img = not nosave and not source.endswith('.txt')  # save inference images
+        is_file = Path(source).suffix[1:] in (VID_FORMATS)
+        is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
+        webcam = source.isnumeric() or source.endswith('.txt') or (is_url and not is_file)
+        if is_url and is_file:
+            source = check_file(source)  # download
 
     # Directories
     if not isinstance(yolo_weights, list):  # single yolo model
@@ -102,7 +114,11 @@ def run(
     imgsz = check_img_size(imgsz, s=stride)  # check image size
 
     # Dataloader
-    if webcam:
+    if is_gst:
+        show_vid = check_imshow()
+        dataset = LoadGstAppSink(gst_source, img_size=imgsz, stride=stride, auto=pt)
+        nr_sources = len(dataset)
+    elif webcam:
         show_vid = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt)
@@ -111,6 +127,7 @@ def run(
         show_vid = check_imshow()
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
         nr_sources = 1
+
     vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
 
     # initialize StrongSORT
@@ -142,7 +159,8 @@ def run(
     cap = False
 
     if webcam:
-        pass
+        height = dataset.imgs[0].shape[0]
+        width = dataset.imgs[0].shape[1]
     else:
         cap = dataset.cap
         # Video information
@@ -390,7 +408,8 @@ def parse_opt():
     parser.add_argument('--yolo-weights', nargs='+', type=str, default=WEIGHTS / 'yolov5m.pt', help='model.pt path(s)')
     parser.add_argument('--strong-sort-weights', type=str, default=WEIGHTS / 'osnet_x0_25_msmt17.pt')
     parser.add_argument('--config-strongsort', type=str, default='strong_sort/configs/strong_sort.yaml')
-    parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')  
+    parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')
+    parser.add_argument('--gst-source', type=str, default=None, help='GStreamer pipeline')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='NMS IoU threshold')
