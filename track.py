@@ -8,11 +8,9 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-import math
 import sys
-import numpy as np
 from pathlib import Path
-from gst_loader import LoadGstAppSink
+from lf.gst_loader import LoadGstAppSink
 import torch
 import torch.backends.cudnn as cudnn
 
@@ -157,6 +155,7 @@ def run(
     is_paused = False       # Used to signal that pause is called
     frame_counter = 0
     cap = False
+    show_inf_input = False
 
     if webcam:
         height = dataset.imgs[0].shape[0]
@@ -222,6 +221,12 @@ def run(
         nonlocal is_paused
         is_paused = not is_paused
 
+    def toggle_show_inf_key_action(**params):
+        nonlocal show_inf_input
+        show_inf_input = not show_inf_input
+        if not show_inf_input:
+            cv2.destroyWindow("Inference Input")
+
     # Map keys to buttons
     key_action_dict = {
         ord('q'): quit_key_action,
@@ -232,7 +237,8 @@ def run(
         ord('+'): zoom_in_key_action,
         ord('-'): zoom_out_key_action,
         ord('l'): less_threads_key_action,
-        ord('m'): more_threads_key_action
+        ord('m'): more_threads_key_action,
+        ord('w'): toggle_show_inf_key_action,
     }
 
     def key_action(_key):
@@ -244,6 +250,7 @@ def run(
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
     curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
     for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
+        im_display = im.transpose(1,2,0)
         if is_quit:
             break
         elif is_paused:
@@ -370,6 +377,8 @@ def run(
                     cv2.imshow(str(p), new_im0)
                 else:
                     cv2.imshow(str(p), im0)
+                if show_inf_input:
+                    cv2.imshow("Inference Input", im_display)
 
                 key = cv2.waitKey(1)  # 1 millisecond
                 if key >= 0:

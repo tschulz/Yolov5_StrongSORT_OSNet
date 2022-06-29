@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # yolov5 strongsort root directory
+ROOT = FILE.parents[0].parents[0]  # yolov5 strongsort root directory
 
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
