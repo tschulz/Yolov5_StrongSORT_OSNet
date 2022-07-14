@@ -113,16 +113,16 @@ def run(
 
     # Dataloader
     if is_gst:
-        show_vid = check_imshow()
+        show_vid = show_vid and check_imshow()
         dataset = LoadGstAppSink(gst_source, img_size=imgsz, stride=stride, auto=pt)
         nr_sources = len(dataset)
     elif webcam:
-        show_vid = check_imshow()
+        show_vid = show_vid and check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt)
         nr_sources = len(dataset)
     else:
-        show_vid = check_imshow()
+        show_vid = show_vid and check_imshow()
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt)
         nr_sources = 1
 
@@ -305,7 +305,7 @@ def run(
             curr_frames[i] = im0
 
             txt_path = str(save_dir / 'tracks' / txt_file_name)  # im.txt
-            s += '%gx%g ' % im.shape[2:]  # print string
+            s += '{}x{} [{}] '.format(im.shape[2], im.shape[3], frame_idx)  # print string
             imc = im0.copy() if save_crop else im0  # for save_crop
 
             annotator = Annotator(im0, line_width=2, pil=not ascii)
