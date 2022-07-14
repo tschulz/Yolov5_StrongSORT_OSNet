@@ -1,6 +1,7 @@
 import argparse
-
 import os
+import json
+
 # limit the number of cpus used by high performance libraries
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -11,6 +12,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import sys
 from pathlib import Path
 from lf.gst_loader import LoadGstAppSink
+
 import torch
 import torch.backends.cudnn as cudnn
 
@@ -44,6 +46,8 @@ logging.getLogger().removeHandler(logging.getLogger().handlers[0])
 def run(
         source='0',
         gst_source=None, # gstreamer pipeline
+        output_file=None,  # output file
+        truncate_output_file=False,
         yolo_weights=WEIGHTS / 'yolov5m.pt',  # model.pt path(s),
         strong_sort_weights=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
         config_strongsort=ROOT / 'strong_sort/configs/strong_sort.yaml',
@@ -93,6 +97,14 @@ def run(
         webcam = source.isnumeric() or source.endswith('.txt') or (is_url and not is_file)
         if is_url and is_file:
             source = check_file(source)  # download
+
+    output_file_handle = None
+
+    if output_file:
+        if truncate_output_file:
+            output_file_handle = open(output_file, 'w', newline='\n')
+        else:
+            output_file_handle = open(output_file, 'a', newline='\n')
 
     # Directories
     if not isinstance(yolo_weights, list):  # single yolo model
@@ -335,24 +347,34 @@ def run(
                 t5 = time_sync()
                 dt[3] += t5 - t4
 
+                # json out
                 # draw boxes for visualization
                 if len(outputs[i]) > 0:
+                    persons = []
+
                     for j, (output, conf) in enumerate(zip(outputs[i], confs)):
     
                         bboxes = output[0:4]
                         id = output[4]
                         cls = output[5]
 
-                        if save_txt:
+                        if save_txt or output_file_handle:
                             # to MOT format
                             bbox_left = output[0]
                             bbox_top = output[1]
                             bbox_w = output[2] - output[0]
                             bbox_h = output[3] - output[1]
-                            # Write MOT compliant results to file
-                            with open(txt_path + '.txt', 'a') as f:
-                                f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
-                                                               bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
+                            if output_file_handle:
+                                person = {
+                                    "identity": id,
+                                    "bbox": {"x": bbox_left, "y": bbox_top, "w": bbox_w, "h": bbox_h},
+                                }
+                                persons.append(person)
+                            if save_txt:
+                                # Write MOT compliant results to file
+                                with open(txt_path + '.txt', 'a') as f:
+                                    f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
+                                                                   bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
 
                         if save_vid or save_crop or show_vid:  # Add bbox to image
                             c = int(cls)  # integer class
@@ -364,8 +386,20 @@ def run(
                                 txt_file_name = txt_file_name if (isinstance(path, list) and len(path) > 1) else ''
                                 save_one_box(bboxes, imc, file=save_dir / 'crops' / txt_file_name / names[c] / f'{id}' / f'{p.stem}.jpg', BGR=True)
 
-                LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)')
+                    if output_file_handle:
+                        out = {
+                            "timestamp": t1,
+                            "frame_id": frame_idx,
+                            "predictions": {
+                                "persons": persons
+                            }
+                        }
 
+                        line = json.dumps(out)
+                        output_file_handle.write(f'{line}\n')
+
+                log_line = f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)'
+                LOGGER.info(log_line)
             else:
                 strongsort_list[i].increment_ages()
                 LOGGER.info('No detections')
@@ -406,6 +440,13 @@ def run(
 
             prev_frames[i] = curr_frames[i]
 
+        if output_file_handle:
+            output_file_handle.flush()
+
+
+    if output_file_handle:
+        output_file_handle.close()
+
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
     LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms strong sort update per image at shape {(1, 3, *imgsz)}' % t)
@@ -423,6 +464,8 @@ def parse_opt():
     parser.add_argument('--config-strongsort', type=str, default='strong_sort/configs/strong_sort.yaml')
     parser.add_argument('--source', type=str, default='0', help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--gst-source', type=str, default=None, help='GStreamer pipeline')
+    parser.add_argument('--output-file', type=str, default=None, help='file to append the predictions, create if not exist yet.')
+    parser.add_argument('--truncate-output-file', default=False, action='store_true', help='truncate the output file if exists.')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='NMS IoU threshold')
