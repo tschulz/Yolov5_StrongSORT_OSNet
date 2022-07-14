@@ -250,7 +250,11 @@ def run(
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
     curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
     for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
-        im_display = im.transpose(1,2,0)
+        if len(im.shape) == 3:
+            im_display = im[::-1].transpose(1,2,0)
+        elif len(im.shape) == 4:
+            im_display = im[::-1].transpose(0,2,3,1)
+
         if is_quit:
             break
         elif is_paused:
