@@ -367,7 +367,7 @@ def run(
                             if output_file_handle:
                                 person = {
                                     "confidence": conf.numpy().item(),
-                                    "identity": id,
+                                    "identity": int(id),
                                     "bbox": {"x": bbox_left, "y": bbox_top, "w": bbox_w, "h": bbox_h},
                                 }
                                 persons.append(person)
