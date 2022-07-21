@@ -366,7 +366,7 @@ def run(
                             bbox_h = output[3] - output[1]
                             if output_file_handle:
                                 person = {
-                                    "confidence": conf.numpy().item(),
+                                    "confidence": conf.cpu().numpy().item(),
                                     "identity": int(id),
                                     "bbox": {"x": bbox_left, "y": bbox_top, "w": bbox_w, "h": bbox_h},
                                 }
