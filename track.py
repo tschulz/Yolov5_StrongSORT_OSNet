@@ -48,6 +48,7 @@ def run(
         gst_source=None, # gstreamer pipeline
         output_file=None,  # output file
         truncate_output_file=False,
+        quite=False,
         yolo_weights=WEIGHTS / 'yolov5m.pt',  # model.pt path(s),
         strong_sort_weights=WEIGHTS / 'osnet_x0_25_msmt17.pt',  # model.pt path,
         config_strongsort=ROOT / 'strong_sort/configs/strong_sort.yaml',
@@ -399,11 +400,13 @@ def run(
                         line = json.dumps(out)
                         output_file_handle.write(f'{line}\n')
 
-                log_line = f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)'
-                LOGGER.info(log_line)
+                if not quite:
+                    log_line = f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)'
+                    LOGGER.info(log_line)
             else:
                 strongsort_list[i].increment_ages()
-                LOGGER.info('No detections')
+                if not quite:
+                    LOGGER.info('No detections')
 
             # Stream results
             im0 = annotator.result()
@@ -467,6 +470,7 @@ def parse_opt():
     parser.add_argument('--gst-source', type=str, default=None, help='GStreamer pipeline')
     parser.add_argument('--output-file', type=str, default=None, help='file to append the predictions, create if not exist yet.')
     parser.add_argument('--truncate-output-file', default=False, action='store_true', help='truncate the output file if exists.')
+    parser.add_argument('--quite', default=False, action='store_true', help='quite on stdout.')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='NMS IoU threshold')
